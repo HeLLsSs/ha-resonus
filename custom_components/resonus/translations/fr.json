@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Resonus",
+        "description": "La bibliothèque est lue depuis ton serveur de musique ; le téléphone reçoit quoi jouer par son application Companion. L'identifiant du webhook est celui que Resonus affiche dans Réglages › Home Assistant.",
+        "data": {
+          "name": "Nom",
+          "url": "Adresse du serveur de musique",
+          "username": "Nom d'utilisateur",
+          "password": "Mot de passe",
+          "notify_service": "Service notify du Companion",
+          "webhook_id": "Identifiant du webhook"
+        },
+        "data_description": {
+          "name": "Le nom de la carte : la pièce, ou l'appareil.",
+          "url": "Navidrome, ou le proxy Navifind devant lui.",
+          "notify_service": "Celui du téléphone, du genre mobile_app_tablette.",
+          "webhook_id": "Affiché dans Resonus, sous Réglages › Home Assistant."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Le serveur de musique n'a pas répondu, ou a refusé ces identifiants.",
+      "unknown_notify_service": "Home Assistant ne connaît pas ce service notify. C'est l'application Companion sur le téléphone qui en crée un."
+    },
+    "abort": {
+      "already_configured": "Ce téléphone est déjà configuré."
+    }
+  }
+}
