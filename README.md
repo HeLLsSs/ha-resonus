@@ -71,6 +71,10 @@ data:
 
 ## What it does not do
 
+- **A push from the internet.** The webhook is local only: the address on
+  the phone's Home Assistant screen must be the house's own, not a Nabu Casa
+  or reverse-proxy one.
+
 - **iOS.** The command half is an Android broadcast intent.
 - **Queue editing.** The app owns the queue; the card starts things and
   transports them.
