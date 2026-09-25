@@ -21,6 +21,8 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
     MediaType,
     RepeatMode,
+    SearchMedia,
+    SearchMediaQuery,
 )
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
@@ -30,7 +32,8 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from . import ResonusConfigEntry, ResonusData
-from .const import ACTION_COMMAND, DOMAIN, PACKAGE, STALE_AFTER_SECONDS
+from .const import DOMAIN, STALE_AFTER_SECONDS
+from .outputs import current_output, outputs
 from .subsonic import SubsonicError
 
 SUPPORT = (
@@ -45,6 +48,8 @@ SUPPORT = (
     | MediaPlayerEntityFeature.REPEAT_SET
     | MediaPlayerEntityFeature.PLAY_MEDIA
     | MediaPlayerEntityFeature.BROWSE_MEDIA
+    | MediaPlayerEntityFeature.SEARCH_MEDIA
+    | MediaPlayerEntityFeature.SELECT_SOURCE
 )
 
 # What a browsed row turns into when it is played.
@@ -57,7 +62,10 @@ PLAY_COMMANDS = {
 }
 
 # The directories the browser opens with, none of which is a thing to play.
+# The search field only shows inside a directory, never on the root, so the
+# first one is an empty room with nothing but that field.
 ROOT_ROWS = (
+    ("search", "Search", MediaClass.DIRECTORY),
     ("playlists", "Playlists", MediaClass.PLAYLIST),
     ("artists", "Artists", MediaClass.ARTIST),
     ("albums", "Albums", MediaClass.ALBUM),
@@ -176,6 +184,15 @@ class ResonusMediaPlayer(MediaPlayerEntity):
         return REPEAT_TO_HA.get(self._data.state.repeat, RepeatMode.OFF)
 
     @property
+    def source(self) -> str:
+        state = self._data.state
+        return current_output(self.hass, self._entry.title, state.output_id, state.output_name)
+
+    @property
+    def source_list(self) -> list[str]:
+        return list(outputs(self.hass, self._entry.title))
+
+    @property
     def media_image_remotely_accessible(self) -> bool:
         return False
 
@@ -200,25 +217,7 @@ class ResonusMediaPlayer(MediaPlayerEntity):
     # ── What its buttons send ────────────────────────────────────────────
 
     async def _command(self, command: str, **extras: str) -> None:
-        """
-        One intent, through the Companion app on the phone. The extras go as
-        `key:value` pairs, which is the only shape `command_broadcast_intent`
-        takes.
-        """
-        pairs = ",".join(f"{key}:{value}" for key, value in {"command": command, **extras}.items())
-        await self.hass.services.async_call(
-            "notify",
-            self._data.notify_service,
-            {
-                "message": "command_broadcast_intent",
-                "data": {
-                    "intent_package_name": PACKAGE,
-                    "intent_action": ACTION_COMMAND,
-                    "intent_extras": pairs,
-                },
-            },
-            blocking=True,
-        )
+        await self._data.command(self.hass, command, **extras)
 
     async def async_media_play(self) -> None:
         await self._command("play")
@@ -246,6 +245,13 @@ class ResonusMediaPlayer(MediaPlayerEntity):
 
     async def async_set_repeat(self, repeat: RepeatMode) -> None:
         await self._command("repeat", mode=REPEAT_FROM_HA.get(repeat, "off"))
+
+    async def async_select_source(self, source: str) -> None:
+        """Where to play, by the name the list gave it: the device moves the music there."""
+        output_id = outputs(self.hass, self._entry.title).get(source)
+        if output_id is None:
+            raise HomeAssistantError(f"{self._entry.title} cannot play through {source}")
+        await self._command("output", id=output_id)
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
         """A row from the browser, or a `media_content_id` written by hand."""
@@ -305,6 +311,7 @@ class ResonusMediaPlayer(MediaPlayerEntity):
                         title=title,
                         can_play=kind == "favorites",
                         can_expand=True,
+                        can_search=True,
                     )
                     for kind, title, media_class in ROOT_ROWS
                 ],
@@ -313,6 +320,8 @@ class ResonusMediaPlayer(MediaPlayerEntity):
         kind, _, identifier = media_content_id.partition("/")
         client = self._data.client
 
+        if kind == "search":
+            return self._directory("search", "Search", MediaClass.DIRECTORY, [])
         if kind == "playlists":
             rows = await client.playlists()
             return self._directory(
@@ -375,6 +384,36 @@ class ResonusMediaPlayer(MediaPlayerEntity):
             )
         raise BrowseError(f"Resonus cannot browse {media_content_id}")
 
+    async def async_search_media(self, query: SearchMediaQuery) -> SearchMedia:
+        """
+        The field at the top of a directory. Inside the playlists it is their
+        names; anywhere else it is the library, artists first, then albums,
+        then tracks, since a name typed is more often a band than a song.
+        """
+        wanted = query.search_query.strip()
+        if not wanted:
+            return SearchMedia(result=[])
+        kind = (query.media_content_id or "").partition("/")[0]
+        try:
+            if kind == "playlists":
+                rows = [
+                    self._playlist_row(row)
+                    for row in await self._data.client.playlists()
+                    if wanted.casefold() in str(row.get("name", "")).casefold()
+                ]
+            else:
+                found = await self._data.client.search(wanted)
+                rows = [
+                    *(self._artist_row(row) for row in found.get("artist") or []),
+                    *(self._album_row(row) for row in found.get("album") or []),
+                    *(self._track_row(row) for row in found.get("song") or []),
+                ]
+        except SubsonicError as err:
+            raise BrowseError(f"Resonus could not search the library: {err}") from err
+        if query.media_filter_classes:
+            rows = [row for row in rows if row.media_class in query.media_filter_classes]
+        return SearchMedia(result=rows)
+
     def _directory(
         self,
         media_content_id: str,
@@ -392,6 +431,7 @@ class ResonusMediaPlayer(MediaPlayerEntity):
             title=title,
             can_play=playable,
             can_expand=True,
+            can_search=True,
             children=children,
             children_media_class=children[0].media_class if children else None,
         )

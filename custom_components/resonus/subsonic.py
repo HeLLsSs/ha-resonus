@@ -26,6 +26,11 @@ API_VERSION = "1.16.1"
 # The most Navidrome answers per page, and how many pages are worth asking.
 PAGE = 500
 MAX_ALBUMS = 20_000
+# How many of each a search answers with: enough to find the one meant,
+# few enough to read on a card.
+SEARCH_ARTISTS = 10
+SEARCH_ALBUMS = 10
+SEARCH_SONGS = 25
 
 
 class SubsonicError(Exception):
@@ -128,6 +133,17 @@ class SubsonicClient:
             if len(page) < PAGE:
                 break
         return albums
+
+    async def search(self, query: str) -> dict[str, Any]:
+        """Artists, albums and songs matching, as `search3` groups them."""
+        body = await self.call(
+            "search3",
+            query=query,
+            artistCount=SEARCH_ARTISTS,
+            albumCount=SEARCH_ALBUMS,
+            songCount=SEARCH_SONGS,
+        )
+        return body.get("searchResult3") or {}
 
     async def starred(self) -> dict[str, Any]:
         body = await self.call("getStarred2")

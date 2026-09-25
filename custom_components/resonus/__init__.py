@@ -34,7 +34,7 @@ from .subsonic import Credentials, SubsonicClient
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.MEDIA_PLAYER]
+PLATFORMS = [Platform.MEDIA_PLAYER, Platform.SELECT]
 
 
 @dataclass
@@ -53,6 +53,10 @@ class ResonusState:
     volume: float = 1.0
     shuffle: bool = False
     repeat: str = "off"
+    # Where it plays: `phone`, or one of the house's players by entity id, or
+    # a word for an output only the device can see, with its name.
+    output_id: str = "phone"
+    output_name: str = ""
     updated_at: Any = field(default_factory=dt_util.utcnow)
 
     @classmethod
@@ -81,6 +85,8 @@ class ResonusState:
             volume=min(1.0, max(0.0, number("volume"))),
             shuffle=payload.get("shuffle") is True,
             repeat=repeat if repeat in ("off", "all", "one") else "off",
+            output_id=text("outputId") or "phone",
+            output_name=text("outputName"),
         )
 
 
@@ -98,6 +104,28 @@ class ResonusData:
         self.state = state
         for listener in self.listeners:
             listener()
+
+    async def command(self, hass: HomeAssistant, command: str, **extras: str) -> None:
+        """
+        One intent, through the Companion app on the phone. The extras go as
+        `key:value` pairs, which is the only shape `command_broadcast_intent`
+        takes. Nothing waits for an answer: the app's own push comes back
+        through the webhook a moment later.
+        """
+        pairs = ",".join(f"{key}:{value}" for key, value in {"command": command, **extras}.items())
+        await hass.services.async_call(
+            "notify",
+            self.notify_service,
+            {
+                "message": "command_broadcast_intent",
+                "data": {
+                    "intent_package_name": PACKAGE,
+                    "intent_action": ACTION_COMMAND,
+                    "intent_extras": pairs,
+                },
+            },
+            blocking=True,
+        )
 
 
 type ResonusConfigEntry = ConfigEntry[ResonusData]
@@ -145,19 +173,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ResonusConfigEntry) -> b
 
 async def _ask_for_state(hass: HomeAssistant, entry: ResonusConfigEntry) -> None:
     try:
-        await hass.services.async_call(
-            "notify",
-            entry.runtime_data.notify_service,
-            {
-                "message": "command_broadcast_intent",
-                "data": {
-                    "intent_package_name": PACKAGE,
-                    "intent_action": ACTION_COMMAND,
-                    "intent_extras": "command:publish_state",
-                },
-            },
-            blocking=True,
-        )
+        await entry.runtime_data.command(hass, "publish_state")
     except Exception as err:  # noqa: BLE001 - a phone that is away is not an error
         _LOGGER.debug("Could not ask %s what it is playing: %s", entry.title, err)
 

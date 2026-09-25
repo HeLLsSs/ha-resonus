@@ -27,5 +27,12 @@
     "abort": {
       "already_configured": "Ce téléphone est déjà configuré."
     }
+  },
+  "entity": {
+    "select": {
+      "output": {
+        "name": "Sortie"
+      }
+    }
   }
 }

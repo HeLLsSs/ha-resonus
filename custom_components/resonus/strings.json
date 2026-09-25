@@ -27,5 +27,12 @@
     "abort": {
       "already_configured": "That phone is already set up."
     }
+  },
+  "entity": {
+    "select": {
+      "output": {
+        "name": "Output"
+      }
+    }
   }
 }

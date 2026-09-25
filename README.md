@@ -1,8 +1,9 @@
 # Resonus for Home Assistant
 
 A `media_player` entity for a phone or tablet running
-[Resonus](https://github.com/HeLLsSs/resonus): browse the library from the
-card, tap an album, and it plays on that device. What it is playing comes
+[Resonus](https://github.com/HeLLsSs/resonus): browse or search the library
+from the card, tap an album, and it plays on that device, or on whichever of
+the house's speakers the card picked. What it is playing, and where, comes
 back to the card.
 
 Nothing is polled. The state and the library are local; the commands go
@@ -23,9 +24,12 @@ internet is down.
 
 ## Requirements
 
-- Resonus 1.3.0 or later on the device, with **Settings › Home Assistant**
+- Home Assistant 2025.6 or later; the search field in the media browser
+  needs 2026.8 or later.
+- Resonus 1.4.0 or later on the device, with **Settings › Home Assistant**
   switched on: that screen shows the webhook identifier this integration asks
-  for.
+  for. Picking a speaker from the card also needs the address and token that
+  screen asks for, since the device is what hands the speaker the music.
 - The **Home Assistant Companion app** on the same device, so it has a
   `notify.mobile_app_…` service.
 - Local push turned on in the Companion app, unless you are happy for every
@@ -56,6 +60,29 @@ entity: media_player.resonus
 Play, pause, stop, next, previous, seek, volume, shuffle, repeat, and browse:
 playlists, artists, albums and favourites, down to the track. Playing a
 playlist, an album or an artist plays the whole of it; a track plays alone.
+
+**Search** is the field at the top of every directory in the browser, and a
+`Search` directory at the root that is nothing but that field: artists first,
+then albums, then tracks. Inside the playlists it searches their names.
+
+**Where it plays** is the player's source: the device itself, under the name
+given at setup, and every media player in the house a URL can be handed to.
+The same choice is a `select` entity, `select.<name>_output`, for a
+dashboard that wants the speaker next to the card:
+
+```yaml
+type: entities
+entities:
+  - select.living_room_output
+```
+
+Picking a speaker moves the queue there and the device keeps playing it,
+one track at a time, as it does from its own output sheet; picking the
+device brings the music back. A speaker chosen on the device itself that
+Home Assistant has no entity for (a Chromecast or a LinkPlay speaker reached
+directly) shows by name and cannot be picked here. The list is read afresh
+on every push from the device, so a speaker that has just appeared shows
+once the device next says something.
 
 `media_player.play_media` also takes `favorites` and `random` as a
 `media_content_id`, for an automation that just wants music on:
